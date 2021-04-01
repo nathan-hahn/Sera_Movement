@@ -1,6 +1,4 @@
-##### Sera HMM #####
-
-
+##### Sera HMM & Activity Budgets #####
 library(tidyverse)
 library(lubridate)
 library(ggplot2)
@@ -23,7 +21,7 @@ sera <- data.prep(rawData, collar.data = c('Class', 'releaseDate', 'cohort'))
 
 meta.table <- sera %>% group_by(MovDataID, CalcID, Class, releaseDate, cohort) %>%
   tally()
-View(meta.table)
+#View(meta.table)
 
 # viz of raw fix times
 p <- ggplot(sera, aes(x = Fixtime, y = minute(Fixtime))) + geom_point() + facet_wrap(.~MovDataID) +
@@ -63,7 +61,9 @@ system.time({
 # head(ele.traj$tracking.df)
 
 ##### 2. HMM dataframe #####
-#' HMMs are fit using bursts as ID. Filter out bursts with low fix rates and <500 points. We also take the log step length.
+#' HMMs are fit using bursts as ID. 
+#' Filter out bursts with low fix rates and <500 points. 
+#' We also take the log step length.
 
 library(momentuHMM)
 # create burst filter list that meets HMM specs (>500 points in a burst, <5% missing data)
@@ -107,9 +107,11 @@ system.time(
                  modelName = "twoStep")
 )
 
+
+
+#' View model summary and diagnostic plots. Some autocorrelation in the step lengths
 mod2
 
-#' Some autocorrelation in the step lengths
 plotPR(mod2)
 
 # Null 3-state
@@ -129,51 +131,46 @@ system.time(
 saveRDS(mod3, 'mod3_noCovs.RDS')
 mod3 <- readRDS('mod3_noCovs.RDS')
 
-# model summary
+#' View model summary for 3-state model. Still some autocorrelation but not as bad as 2-state. Maybe temp-related?
 mod3
 
-# still some autocorrelation but not as bad as 2-state. Seems to be a two-day pattern
 plotPR(mod3)
 
+#' To Add - Rose Diagram plots for turning angles
+
 ##### Activity Budgets #####
+#' Using 3-state model, calculate behavioral states
+#' Divide data into synchronized 14-day periods based on orphan cohort 1
+#' Assess activity budgets using state-level time density
+#' Assess activity time budgets (e.g. % time spent in each state over 14-day periods)
 
-# TEMP - assign orphan/non-orphan
-#sera.hmm <- merge(sera.hmm, meta, by = "MovDataID")
-
-# apply viterbi algorithm to assign states
+# assign states using viterbi algorithm
 sera.hmm$viterbi <- as.numeric(viterbi(mod3)) 
 sera.hmm$state <- sera.hmm$viterbi
 levels(sera.hmm$state) <- c('encamped', 'meandering', 'dirwalk')
 
-# create true start and end dates
+# create true start and end dates based on collars
 sera <- sera %>%
   group_by(CalcID) %>%
   mutate(StartDate = min(Fixtime), EndDate = max(Fixtime))
 
-#' Overall time budgets show similar but not identical activity between cohorts. 4 = wild
+#' Overall time budgets show similar but not identical activity between cohorts. cohort 4 = wild
 # pct budgets
 prop.table(table(sera.hmm$viterbi, sera.hmm$cohort), margin = 2)
 
 # also check sample sizes
 sera.hmm %>% group_by(cohort) %>% tally()
 
-#' Activity patterns generated using kernel density estimates also show similarly timed peaks across the 
-#' three states. There is a slightly higher peak in meandering for orphans around mid-day. Given the 
-#' similarity, it could be interesting to split orphan time between the two release stages. 
-
-# plot
-plot_budget(t = sera.hmm, facet = cohort~viterbi, title = 'budget by cohort (4 = wild)')
-
-##### Activty Time Slices #####
-# ref dates for each release - wild will be assessed over the same time period
+##### Activity Budgets - Time Density #####
+#' Divide data into synchronized 14-day periods based on orphan cohort 1
+#' Assess activity budgets using state-level time density
 
 # split by cohort - 4 = wild
 split <- split(sera.hmm, sera.hmm$cohort)
-as.Date(unique(sera.hmm$releaseDate))
-
+#as.Date(unique(sera.hmm$releaseDate))
 release.date <- as.Date(c("2019-05-02", "2019-11-16", "2020-05-28", "2019-05-30"))
 
-# assign periods
+# function to assign periods
 date_slice <- function(data, fixtime, release.date, slice.length){
   # create a date variable
   data$Day <- as.Date(fixtime)
@@ -184,27 +181,33 @@ date_slice <- function(data, fixtime, release.date, slice.length){
     mutate(slice.start = min(Day))
 }
 
+#' Plot activity over 14-day periods - all dates are relative to the first cohort's release date. 
+#' Activity time density plots are faceted by relative period, showing pre and post release. Immediate use of exploratory state after release
 
-# Create cohort slices - all dates are relative to the first cohort's release date. 
-# Can change this by updating the release date variable in the function to make it relative to their own release date
-cohort.1 <- date_slice(data = split[[1]], fixtime = split[[1]]$date, release.date = release.date[1], slice.length = 14)
+# set period length
+per <- 14
+
+cohort.1 <- date_slice(data = split[[1]], fixtime = split[[1]]$date, release.date = release.date[1], slice.length = per)
 plot_budget(cohort.1, facet = slice~viterbi, title = 'cohort 1')
 
-cohort.2 <- date_slice(data = split[[2]], fixtime = split[[2]]$date, release.date = release.date[1], slice.length = 14)
+cohort.2 <- date_slice(data = split[[2]], fixtime = split[[2]]$date, release.date = release.date[1], slice.length = per)
 plot_budget(cohort.2, facet = slice~viterbi, title = 'cohort 2')
 
-cohort.3 <- date_slice(data = split[[3]], fixtime = split[[3]]$date, release.date = release.date[1], slice.length = 14)
+cohort.3 <- date_slice(data = split[[3]], fixtime = split[[3]]$date, release.date = release.date[1], slice.length = per)
 plot_budget(cohort.3, facet = slice~viterbi, title = 'cohort 3')
 
-cohort.4 <- date_slice(data = split[[4]], fixtime = split[[4]]$date, release.date = release.date[1], slice.length = 14)
+cohort.4 <- date_slice(data = split[[4]], fixtime = split[[4]]$date, release.date = release.date[1], slice.length = per)
 plot_budget(cohort.4, facet = slice~viterbi, title = 'wild')
 
 
 ##### Overlap Tests #####
+#' Test the overlap in density of activity between each cohort and the wild group using the 14-day time slices. 
+#' Data are filtered to remove pre-release data from orphan cohorts, and to remove time slices with less than 100 relocations.
+
 library(overlapping)
 
-# overlap test function - used in the for loop
-overlap.test <- function(df, comp0, comp1, boot.it = 1000) {
+## overlap test function - used in the for loop
+overlap.test <- function(df, comp0, comp1, boot.it = 1000, plot = FALSE) {
   require(tidyverse)
   require(lubridate)
   require(overlapping)
@@ -222,7 +225,7 @@ overlap.test <- function(df, comp0, comp1, boot.it = 1000) {
 }
 
 ## Prep cohort dataframes 
-#filter out pre-release data based on release date of each cohort, and split by relative time slice
+# filter out pre-release data based on release date of each cohort, and split by relative time slice
 cohort.1 <- subset(cohort.1, as.Date(cohort.1$date) >= release.date[1])
 cohort.1.split <- split(cohort.1, cohort.1$slice)
 
@@ -235,7 +238,7 @@ cohort.3.split <- split(cohort.3, cohort.3$slice)
 # combine to single nested list of orphan cohorts 
 cohort.all.list <- list(cohort.1.split, cohort.2.split, cohort.3.split) # all cohorts after filtering out pre-release data
 
-# **for wild, backload slice to comp with cohort 1's earlier release date 
+# **for wild, must repeat the first 14 day period twice to compare with cohort 1's earlier release date 
 wild.split <- split(cohort.4, cohort.4$slice)
 t <- length(wild.split)
 wild.split[[t+1]] <- wild.split[[2]]
@@ -244,10 +247,10 @@ wild.split[[1]] <- wild.split[[2]]
 wild.split[[1]]$slice <- 1
 # Bind back together and check result
 cohort.4 <- do.call(rbind, wild.split)
-plot_budget(cohort.4, facet = slice~viterbi, title = 'wild') # check
+#plot_budget(cohort.4, facet = slice~viterbi, title = 'wild') # check
 # **
 
-# pre-filter out slices with low amounts of data - adjust based on slice length
+# filter out slices with low amounts of data
 n <- 100
 cohort.all.list <- lapply(cohort.all.list, function(x) Filter(function(y) nrow(y) >= n, x))
 
@@ -271,7 +274,7 @@ for(k in 1:3){ # orphan cohort loop - to be comped always with wild cohort 4
       comp.all[[name]] <- t$bootstrap$OVboot_stats
       comp.all[[name]]$lwr <- as.numeric(q[1])
       comp.all[[name]]$upr <- as.numeric(q[2])
-      comp.all[[name]]$state <- comp0$viterbi
+      comp.all[[name]]$viterbi <- comp0$viterbi
       comp.all[[name]]$cohort <- comp0$cohort
       comp.all[[name]]$slice <- comp0$slice
       comp.all[[name]]$slice.start <- unique(cohort.all.list[[k]][[j]]$slice.start)
@@ -286,35 +289,42 @@ for(k in 1:3){ # orphan cohort loop - to be comped always with wild cohort 4
 # join results into single dataframe
 t <- do.call(rbind, comp.all)
 
-ggplot(t, aes(slice, estOV)) + geom_pointrange(aes(ymin = lwr, ymax = upr)) + facet_wrap(state~comp) 
 
-# explore specific comps
-k = 1
-i = 1
-j = 44
+#' Plot the overlap estimates of activity between orphan cohorts and the wild group over time. Not any obvious trends. 
+#' x-axis corresponds to the 14-day time period. Plots are faceted by cohort comparison and behavioral state
+#' Cohort 4 = Wild Group
 
-#create comps -- !! How to reference the correct slice as it iterates through. Will only work for individual cohorts
-comp0 <- list(viterbi = as.integer(i), cohort = k, slice = unique(cohort.all.list[[k]][[j]]$slice)) # cohort number
-comp1 <- list(viterbi = as.integer(i), cohort = 4, slice = unique(cohort.all.list[[k]][[j]]$slice)) # comp is always wild
-t <- overlap.test(df = rbind(cohort.all.list[[k]][[j]], cohort.4), comp0 = comp0, comp1 = comp1)
+t$state <- t$viterbi
+levels(t) <- c('encamped', 'meandering', 'dirwalk')
+ggplot(t, aes(slice, estOV)) + geom_pointrange(aes(ymin = lwr, ymax = upr)) + facet_wrap(state~comp) +
+  xlab('14-day periods') + ylab('Estimated overlap in 24-hour activity')
 
+#' Overall the overlap is lower than would be expected if they were behaving similarly. 
+#' In the ag tactic comparisons, similar tactics were averaging close to or above 90% overlap
+t %>% group_by(state) %>% summarise(mean(estOV))
+
+# # explore specific comps of interest
+# k = 1
+# i = 1
+# j = 44
+# 
+# #check comps 
+# comp0 <- list(viterbi = as.integer(i), cohort = k, slice = unique(cohort.all.list[[k]][[j]]$slice)) # cohort number
+# comp1 <- list(viterbi = as.integer(i), cohort = 4, slice = unique(cohort.all.list[[k]][[j]]$slice)) # comp is always wild
+# t <- overlap.test(df = rbind(cohort.all.list[[k]][[j]], cohort.4), comp0 = comp0, comp1 = comp1)
 
 ##### Activity Time Budgets #####
+#' Plot activity time budgets (% time spent in each state) over 14-day periods
+#' Plot absolute difference in time budgets between each cohort the wild group over 14-day periods
+
 library(DescTools)
-#NOT RUN
-t <- rbind(cohort.1, cohort.2, cohort.3, cohort.4) %>%
-  group_by(cohort, slice, viterbi) %>%
-  tally()
+t <- 
 (t)
 
+# ag budget with 95% CIs
 ag.budget <- t %>%
-  group_by(cohort, slice) %>%
-  summarize(pct = n/sum(n))
-ag.budget$state <- t$viterbi
-ag.budget
-
-# with CIs
-ag.budget <- t %>%
+  rbind(cohort.1, cohort.2, cohort.3, cohort.4) %>%
+  group_by(cohort, slice, viterbi) %>% tally() %>%
   group_by(cohort, slice) %>%
   mutate(prop = MultinomCI(n, conf.level = 0.95, sides = 'two.sided')[,1],
          lwr.ci = MultinomCI(n, conf.level = 0.95, sides = 'two.sided')[,2],
@@ -322,76 +332,43 @@ ag.budget <- t %>%
   ) %>%
   mutate(cohort = as.factor(cohort), viterbi = as.factor(viterbi))
 
-ag.budget
+# budgets over time
+ggplot(ag.budget, aes(as.factor(slice), y = prop, group = viterbi)) + geom_point(aes(color = viterbi)) + 
+  geom_line(aes(color = viterbi), linetype = 'dashed') +
+  facet_grid(rows = vars(cohort), cols = vars(viterbi)) +
+  xlab('14-day period')
 
-write.csv(ag.budget, 'ac.time.budget.csv')
+# # plot by each cohort-wild comp
+# c.1 <- subset(ag.budget, cohort %in% c('1', '4'))
+# c.2 <- subset(ag.budget, cohort %in% c('2', '4'))
+# c.3 <- subset(ag.budget, cohort %in% c('3', '4'))
+# 
+# # plot w/ CIs
+# ggplot(c.1, aes(x = as.factor(slice), y = prop, group = cohort)) + 
+#   geom_pointrange(aes(ymin = lwr.ci, ymax = upr.ci, color = cohort)) + 
+#   geom_line(aes(color = cohort), linetype = "dashed") + 
+#   facet_wrap(.~viterbi) + ylab("% time spent in state") + xlab("14-day period")
 
-# plot by each cohort-wild comp
-c.1 <- subset(ag.budget, cohort %in% c('1', '4'))
-c.2 <- subset(ag.budget, cohort %in% c('2', '4'))
-c.3 <- subset(ag.budget, cohort %in% c('3', '4'))
-
-# plot w/ CIs
-ggplot(c.1, aes(x = as.factor(slice), y = prop, group = cohort)) + 
-  geom_pointrange(aes(ymin = lwr.ci, ymax = upr.ci, color = cohort)) + 
-  geom_line(aes(color = cohort), linetype = "dashed") + 
-  facet_wrap(.~viterbi) + ylab("% time spent in state") + xlab("14-day period")
-
-# get absolute differences between movement phases
+# get differences between movement phases
 split <- split(ag.budget, ag.budget$cohort)
 wild <- split[[4]]
 split[[4]] <- NULL
 
 for(i in 1:3){
   split[[i]] <- merge(split[[i]], wild, by = c("slice", 'viterbi'))
-  split[[i]]$diff <- abs(split[[i]]$prop.x - split[[i]]$prop.y) # absolute difference
+  split[[i]]$diff <- (split[[i]]$prop.x - split[[i]]$prop.y) # use 'abs' to get absolute difference
   split[[i]]$viterbi.y <- NULL
 }
+diff <- do.call(rbind, split)
 
-i = 2
+#' Difference between time budgets for each orphan cohort compared to the wild group. 
+#' Overall, orphans appear to generally spend more time in exploratory and less time in encamped
+diff %>% group_by(viterbi, cohort.x) %>% summarise(median(diff)) 
 
-ggplot(split[[i]], aes(x = as.factor(slice), y = diff, group = viterbi)) + geom_point() + 
-  geom_line(linetype = "dashed") + 
-  facet_wrap(.~viterbi)
-
-# budgets over time
-temp <- do.call(rbind, split)
-ggplot(temp, aes(as.factor(slice), y = prop.x, group = viterbi)) + geom_point(aes(color = viterbi)) + 
-  geom_line(aes(color = viterbi), linetype = 'dashed') +
-  facet_wrap(cohort.x~viterbi)
-
-
-# Old For Loop that does the comps by cohort
-# ## Tactic comp loop - cohort 1
-# comp <- list()
-# OV_results <- list()
-# # viterbi loop
-# for(i in 1:3){
-#   # cohort loop
-#   for(j in 1:length(cohort.1.split)){
-#     #create comps
-#     comp0 <- list(viterbi = as.integer(i), cohort = 1) # cohort number
-#     comp1 <- list(viterbi = as.integer(i), cohort = 4) # comp is always wild
-#     
-#     # run and store overlap output
-#     t <- overlap.test(df = rbind(cohort.1.split[[j]], cohort.4), comp0 = comp0, comp1 = comp1)
-#     name <- paste(as.integer(i), j, 4, sep='-')
-#     q <- quantile(t$bootstrap$OVboot_dist, probs = c(0.05, 0.95))
-#     
-#     # store state and comp name
-#     comp[[name]] <- t$bootstrap$OVboot_stats
-#     comp[[name]]$lwr <- as.numeric(q[1])
-#     comp[[name]]$upr <- as.numeric(q[2])
-#     comp[[name]]$state <- as.integer(i)
-#     comp[[name]]$comp <- paste(j, 4, sep='-')
-#     
-#     # store OV bootstrap results
-#     OV_results[[j]] <- t$bootstrap$OVboot_dist
-#   }
-# }
-# 
-# t <- do.call(rbind, comp)
-#   
-
-
+#' There is not much temporal pattern here. 
+#' Columns correspond to behavioral state, rows correspond to each orphan cohort
+ggplot(diff, aes(x = as.factor(slice), y = diff, group = viterbi)) + geom_point(aes(color = viterbi)) + 
+  geom_line(aes(color = viterbi), linetype = "dashed") + 
+  facet_grid(rows = vars(cohort.x), cols = vars(viterbi)) +
+  xlab('14-day period')
 
