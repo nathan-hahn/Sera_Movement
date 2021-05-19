@@ -1,7 +1,10 @@
 ##### Sera HMM & Activity Budgets #####
-library(tidyverse)
-library(lubridate)
-library(ggplot2)
+library(tidyverse, quietly = TRUE)
+library(lubridate, quietly = TRUE)
+library(ggplot2, quietly = TRUE)
+library(momentuHMM, quietly = TRUE)
+library(overlapping, quietly = TRUE)
+library(lsmeans, quietly = TRUE)
 source('Sera_functions.R')
 
 # Set environment to EAT
@@ -79,7 +82,7 @@ levels(hmm.filter$id)
 # create HMM dataframe
 sera.hmm <- filter(ele.traj$tracking.df, burst %in% hmm.filter$burst) %>%
   rename(ID = burst) # treat bursts as individuals for fitting
-sera.hmm <- subset(sera.hmm, !is.na(sera.hmm$x))
+#sera.hmm <- subset(sera.hmm, !is.na(sera.hmm$x))
 
 # prep data for HMM
 sera.step <- prepData(sera.hmm)
@@ -101,8 +104,7 @@ par2 <- list(step = c(2, 6, 2, 1),
 system.time(
   mod2 <- fitHMM(data = sera.log.step, nbStates = 2, dist = distNorm,
                  Par0 = par2,
-                 retryFits = 5,
-                 formula = ~ (1:MovDataID), # add a random effect for individual
+                 retryFits = 1,
                  stateName = stateNames2,
                  modelName = "twoStep")
 )
@@ -122,14 +124,13 @@ system.time(
   mod3 <- fitHMM(data = sera.log.step, nbStates = 3, dist = distNorm,
                  Par0 = par3,
                  retryFits = 1,
-                 formula = ~ (1:MovDataID), # add a random effect for individual
                  stateName = stateNames3,
                  modelName = "threeState null")
 )
 
 # save 3-state model
-saveRDS(mod3, 'mod3_noCovs.RDS')
-mod3 <- readRDS('mod3_noCovs.RDS')
+#saveRDS(mod3, 'mod3_noCovs.RDS')
+#mod3 <- readRDS('mod3_noCovs.RDS')
 
 #' View model summary for 3-state model. Still some autocorrelation but not as bad as 2-state. Maybe temp-related?
 mod3
@@ -145,7 +146,7 @@ plotPR(mod3)
 #' Assess activity time budgets (e.g. % time spent in each state over 14-day periods)
 
 # assign states using viterbi algorithm
-sera.hmm$viterbi <- as.numeric(viterbi(mod3)) 
+sera.hmm$viterbi <- (viterbi(mod3)) 
 sera.hmm$state <- sera.hmm$viterbi
 levels(sera.hmm$state) <- c('encamped', 'meandering', 'dirwalk')
 
@@ -154,11 +155,7 @@ sera <- sera %>%
   group_by(CalcID) %>%
   mutate(StartDate = min(Fixtime), EndDate = max(Fixtime))
 
-#' Overall time budgets show similar but not identical activity between cohorts. cohort 4 = wild
-# pct budgets
-prop.table(table(sera.hmm$viterbi, sera.hmm$cohort), margin = 2)
-
-# also check sample sizes
+# check sample sizes by cohort
 sera.hmm %>% group_by(cohort) %>% tally()
 
 ##### Activity Budgets - Time Density #####
@@ -197,7 +194,8 @@ cohort.3 <- date_slice(data = split[[3]], fixtime = split[[3]]$date, release.dat
 plot_budget(cohort.3, facet = slice~viterbi, title = 'cohort 3')
 
 cohort.4 <- date_slice(data = split[[4]], fixtime = split[[4]]$date, release.date = release.date[1], slice.length = per)
-plot_budget(cohort.4, facet = slice~viterbi, title = 'wild')
+plot_budget(cohort.4, facet = slice~viterbi, title = 'wild') 
+
 
 
 ##### Overlap Tests #####
@@ -216,7 +214,7 @@ overlap.test <- function(df, comp0, comp1, boot.it = 1000, plot = FALSE) {
   d <- list(as.numeric(hour(d0$date)), as.numeric(hour(d1$date)))
   
   # overlap and bootstrap test
-  t <- overlap(d, plot = T)
+  t <- overlap(d, plot = plot)
   boot <- boot.overlap(d, B = boot.it)
   boot$OVboot_stats
   
@@ -289,19 +287,20 @@ for(k in 1:3){ # orphan cohort loop - to be comped always with wild cohort 4
 # join results into single dataframe
 t <- do.call(rbind, comp.all)
 
+#' Overall the overlap is lower than would be expected if they were behaving similarly. 
+#' In the ag tactic comparisons, similar tactics were averaging close to or above 90% overlap
+t %>% group_by(state) %>% summarise(mean(estOV))
 
 #' Plot the overlap estimates of activity between orphan cohorts and the wild group over time. Not any obvious trends. 
 #' x-axis corresponds to the 14-day time period. Plots are faceted by cohort comparison and behavioral state
 #' Cohort 4 = Wild Group
 
-t$state <- t$viterbi
-levels(t) <- c('encamped', 'meandering', 'dirwalk')
-ggplot(t, aes(slice, estOV)) + geom_pointrange(aes(ymin = lwr, ymax = upr)) + facet_wrap(state~comp) +
+t$state <- as.factor(t$viterbi)
+levels(t$state) <- c('encamped', 'meandering', 'dirwalk')
+t$comp <- as.factor(t$comp)
+levels(t$comp) <- c('cohort1-wild', 'cohort2-wild', 'cohort3-wild')
+ggplot(t, aes(slice, estOV)) + geom_pointrange(aes(ymin = lwr, ymax = upr, color = state), size = .3) + facet_wrap(comp~state) +
   xlab('14-day periods') + ylab('Estimated overlap in 24-hour activity')
-
-#' Overall the overlap is lower than would be expected if they were behaving similarly. 
-#' In the ag tactic comparisons, similar tactics were averaging close to or above 90% overlap
-t %>% group_by(state) %>% summarise(mean(estOV))
 
 # # explore specific comps of interest
 # k = 1
@@ -318,12 +317,8 @@ t %>% group_by(state) %>% summarise(mean(estOV))
 #' Plot absolute difference in time budgets between each cohort the wild group over 14-day periods
 
 library(DescTools)
-t <- 
-(t)
-
 # ag budget with 95% CIs
-ag.budget <- t %>%
-  rbind(cohort.1, cohort.2, cohort.3, cohort.4) %>%
+ag.budget <- rbind(cohort.1, cohort.2, cohort.3, cohort.4) %>%
   group_by(cohort, slice, viterbi) %>% tally() %>%
   group_by(cohort, slice) %>%
   mutate(prop = MultinomCI(n, conf.level = 0.95, sides = 'two.sided')[,1],
@@ -333,10 +328,13 @@ ag.budget <- t %>%
   mutate(cohort = as.factor(cohort), viterbi = as.factor(viterbi))
 
 # budgets over time
-ggplot(ag.budget, aes(as.factor(slice), y = prop, group = viterbi)) + geom_point(aes(color = viterbi)) + 
+ag.budget$state <- ag.budget$viterbi
+levels(ag.budget$state) <- c('encamped', 'meandering', 'dirwalk')
+levels(ag.budget$cohort) <- c('cohort 1', 'cohort 2', 'cohort 3', 'wild')
+ggplot(ag.budget, aes(slice, y = prop, group = viterbi)) + geom_point(aes(color = viterbi)) + 
   geom_line(aes(color = viterbi), linetype = 'dashed') +
   facet_grid(rows = vars(cohort), cols = vars(viterbi)) +
-  xlab('14-day period')
+  xlab('14-day period') + ggtitle('activity time budgets for each group (14-day)')
 
 # # plot by each cohort-wild comp
 # c.1 <- subset(ag.budget, cohort %in% c('1', '4'))
@@ -360,15 +358,32 @@ for(i in 1:3){
   split[[i]]$viterbi.y <- NULL
 }
 diff <- do.call(rbind, split)
+diff$state <- diff$viterbi
+levels(diff$state) <- c("encamped", "meandering", "dir-walk")
+levels(diff$cohort.x) <- c("cohort 1", 'cohort 2', 'cohort 3', 'wild')
 
-#' Difference between time budgets for each orphan cohort compared to the wild group. 
-#' Overall, orphans appear to generally spend more time in exploratory and less time in encamped
-diff %>% group_by(viterbi, cohort.x) %>% summarise(median(diff)) 
 
 #' There is not much temporal pattern here. 
 #' Columns correspond to behavioral state, rows correspond to each orphan cohort
-ggplot(diff, aes(x = as.factor(slice), y = diff, group = viterbi)) + geom_point(aes(color = viterbi)) + 
-  geom_line(aes(color = viterbi), linetype = "dashed") + 
-  facet_grid(rows = vars(cohort.x), cols = vars(viterbi)) +
-  xlab('14-day period')
+ggplot(diff, aes(x = slice, y = diff, group = state)) + geom_point(aes(color = state)) + 
+  geom_line(aes(color = state), linetype = "dashed") + geom_hline(yintercept = 0) + 
+  facet_grid(rows = vars(cohort.x), cols = vars(state)) +
+  xlab('14-day period') + ylab('difference in activity time budget') +
+  ggtitle('Difference in activity time budgets between cohorts and wild groups (14-day)')
+
+#' Difference between time budgets for each orphan cohort compared to the wild group. 
+#' Overall, orphans appear to generally spend more time in exploratory and less time in encamped. Amounts of time in meandering are similar
+diff %>% group_by(viterbi, cohort.x) %>% summarise(mean(diff)) 
+
+#' A linear mixed model of percent time by cohort and behavioral state demonstrates that cohort 1 and 2 spent significantly more time 
+#' in an exploratory state, and significantly less time in encamped.
+mod <- lm(prop ~ cohort*viterbi, data = ag.budget)
+
+library(lsmeans)
+# want to compare the levels of cohort, within the levels of viterbi state
+ls <- lsmeans(mod, pairwise ~ cohort|viterbi, glhargs=list())
+#ls
+plot(ls[[1]])
+
+
 
