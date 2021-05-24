@@ -13,7 +13,7 @@ library(anipaths)
 # 3. Export shapefiles of trajectories (polylines) and GPS relocations (points)
 
 # load dataset 
-output <- read.csv('./movdata/Sera_datasets_10Mar21_HMMclassified_20210427.csv') 
+output <- read.csv('./movdata/Sera_datasets_10Mar21_HMMclassified_20210524.csv') 
 
 # remove missing relocs
 df <- output %>%
@@ -77,68 +77,44 @@ mapview(traj.sf.filter$`1387`["viterbi"]) + waterpoints
 mapview(traj.sf.filter$`1520`["viterbi"]) + waterpoints
 
 
-## Path animation
-library(anipaths)
-source("~/Dropbox (Personal)/R/Functions/Traj_Function.R")
-
-# Convert to latlong
-output.latlong <- AddLatLong(output)
-
-# get background map
-# https://console.cloud.google.com/google/maps-apis/overview
-ggmap::register_google(key = "AIzaSyAyZnyz0E5teo9SbaKvyvoxkV1sAz-ty10", write = TRUE)
-background <- ggmap::get_googlemap(center = c(37.800, 1.097),
-                                   zoom = 12,
-                                   maptype = "satellite")
-
-# create animation dataset - cohort
-ele <- filter(output.latlong, MovDataID %in% c('Lingwezi', 'Pokot', 'Nchurai', 'Chapulo', 'Kaingus', 'Kalama', 'Serteta')) %>%
-  mutate(date = as.POSIXct(date, tz = "Africa/Nairobi"))
-
-# ele <- filter(output.latlong, cohort == 1) %>%
-#   mutate(date = as.POSIXct(date, tz = "Africa/Nairobi"))
-
-# animation function
-animate_paths(paths = ele,
-              delta.t = "day",
-              coord = c("location.long", "location.lat"),
-              Time.name = "date",
-              covariate = "cohort",
-              whole.path = TRUE,
-              tail.length = 0,
-              ID.name = "MovDataID",
-              background = background,
-              method = "mp4")
-
-
 ##### 3. Write to shapefiles #####
 
 # set wd before exporting! 
+setwd('./movdata/traj output/trajectories')
+
 
 ## write filtered trajectories to disk
 
 # by individual
 sapply(names(traj.sf.filter), 
-       function (x) st_write(traj.sf.filter[[x]], paste(x, "traj_release_2021-05-19", sep="_"), driver = "ESRI Shapefile"))
+       function (x) st_write(traj.sf.filter[[x]], paste(x, "traj_6month_2021-05-20", sep="_"), driver = "ESRI Shapefile"))
 
 ## write GPS relocations to disk
 # set wd before exporting!
 
 # create locs
-df <- output %>%
-  drop_na(x,y) %>%
-  droplevels()
+df %>% group_by()
 locs.sf <- st_as_sf(df, coords = c("x", "y"), crs = 32637) # for some reason doesn't work with ..36
-locs.split <- split(locs.sf, locs.sf$id)
+locs.sf <- split(locs.sf, locs.sf$id)
+
+# filter to 6 months post release
+locs.sf.filter <- lapply(locs.sf, filter, as.Date(date) >= as.Date(releaseDate) + 1 & 
+                           # adjust time post release (n months * 30 days)
+                           as.Date(date) <= (as.Date(releaseDate) + 6*30))
+
 
 # # write to disk
-# # full 
-# st_write(ele.sf, "Sera_datasets_10Mar21_HMMclassified_20210427", driver = "ESRI Shapefile")
-# # by individual
-# sapply(names(locs.split), 
-#        function (x) st_write(locs.split[[x]], paste(x, "20210427", sep="_"), driver = "ESRI Shapefile"))
-# # rds
-# saveRDS(ele.sf, "EleCollars_211119_locs_2019-11-30.rds")
+# set wd
+setwd('..')
+setwd('./relocations')
+
+# full
+#st_write(ele.sf, "Sera_datasets_10Mar21_HMMclassified_20210427", driver = "ESRI Shapefile")
+# by individual
+sapply(names(locs.sf.filter),
+       function (x) st_write(locs.sf.filter[[x]], paste(x, "locs_6month_2021-05-20", sep="_"), driver = "ESRI Shapefile"))
+# rds
+saveRDS(ele.sf, "EleCollars_211119_locs_2019-11-30.rds")
 
 
 
