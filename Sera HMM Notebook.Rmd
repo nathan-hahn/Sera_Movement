@@ -115,6 +115,8 @@ meta.table <- merge(meta.table, t, by = 'CalcID')
 
 meta.table
 
+write.csv(meta.table, './movdata/collar metadata.csv')
+
 ```
 
 ### 3. Fit HMMs
@@ -221,6 +223,20 @@ plotRA(state.split[[1]])
 plotRA(state.split[[2]])
 plotRA(state.split[[3]])
 ```
+
+RE-RUN AND SAVE. SLICE INFO DID NOT SAVE LAST TIME ????
+
+```{r}
+# export HMM-classified movdata with slice info
+#t <- sera.hmm %>%
+#  arrange(cohort, MovDataID, date)
+#write.csv(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210427.csv')
+saveRDS(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210427.rds')
+
+sera.hmm <- readRDS('./movdata/Sera_datasets_10Mar21_HMMclassified_20210427.rds')
+```
+
+
 ```{r}
 # look at step length distributions in the 3 states and by cohort
 boxplot(sera.hmm$dist ~ sera.hmm$cohort + sera.hmm$viterbi)
@@ -235,14 +251,18 @@ hmm.df <- do.call(rbind, split)
 # check step length distributions
 boxplot(hmm.df$dist ~ hmm.df$cohort + hmm.df$viterbi)
 
-```
 
+
+
+```
 
 ```{r}
 # export HMM-classified movdata with slice info
-#t <- sera.hmm %>%
-#  arrange(cohort, MovDataID, date)
-#write.csv(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210427.csv')
+t <- hmm.df %>%
+  arrange(cohort, MovDataID, date)
+write.csv(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210524.csv')
+saveRDS(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210524.rds')
+
 ```
 
 ### 3. Activity Budgets 
