@@ -225,4 +225,17 @@ cluster_cutpoint<-function(object, comp, grph=T) {
   
 }
 
+##### Add Lat Lon #####
+AddLatLong <- function(input) {
+  require(rgdal)
+  require(sp)
+  temp <- as.matrix(cbind(input$x,input$y))
+  proj.info <- "+proj=longlat +datum=WGS84"
+  sputm <- SpatialPoints(temp,proj4string = CRS("+proj=utm +init=epsg:32637"))
+  spgeo <- spTransform(sputm,CRS(proj.info))
+  input$location.lat <- spgeo@coords[,2]
+  input$location.long <- spgeo@coords[,1]
+  return(input)
+}
+
 
