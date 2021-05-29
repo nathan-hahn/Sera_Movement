@@ -22,18 +22,17 @@ source('Sera_functions.R')
 Sys.setenv(TZ="Africa/Nairobi") 
 ```
 
-```{r}
-rawData <- read.csv('./movdata/Sera_datasets_10Mar21.csv')
-meta <- read.csv('./movdata/sera_metadata.csv')
-rawData <- merge(rawData, meta, by = 'MovDataID')
-```
-
 ### 1. Prep data
 * Prep data and check fixes
 * Create 14-day periods
 * Calculate fix rates
 
 ```{r fig.width = 8}
+# raw data and metadata
+rawData <- read.csv('./movdata/Sera_datasets_10Mar21.csv')
+meta <- read.csv('./movdata/sera_metadata.csv')
+rawData <- merge(rawData, meta, by = 'MovDataID')
+
 ## Prep and check data
 sera <- data.prep(rawData, collar.data = c('Class', 'releaseDate', 'cohort'))
 
@@ -187,11 +186,6 @@ system.time(
 ```
 
 
-```{r}
-# top model output with 3 movement states
-mod3
-```
-
 ##### Diagnostics
 
 Pseudo-residuals and autocorelation functions are used to assess the model fits. The autocorrelation is reduced in the 3-state model. Turning angle distributions are shown for each of the three classified states. 
@@ -202,6 +196,11 @@ plotPR(mod2)
 
 plotPR(mod3)
 ```
+```{r}
+# top model output with 3 movement states
+mod3
+```
+
 The distribution of turning angles shows the concentration of straight-line movement (turning angle = 0) as movement states progress from encamped to directed walk.
 
 ```{r results='hold'}
@@ -223,6 +222,7 @@ plotRA(state.split[[2]])
 plotRA(state.split[[3]])
 ```
 
+The boxplot shows the step length distributions for each movement state of each cohort (cohort:state). For cohorts, 1-3 correspond to orphan cohorts 1 through 3, and 4 corresponds to the wild group. State 1 = encamped, 2 = meandering, 3 = directed walk. 
 ```{r}
 # filter out outlier steps 
 split <- split(sera.hmm, sera.hmm$viterbi)
@@ -232,7 +232,7 @@ split[[3]] <- filter(split[[3]], dist >= median((split[[2]]$dist + runif(1, -200
 hmm.df <- do.call(rbind, split)
 
 # check step length distributions
-boxplot(hmm.df$dist ~ hmm.df$cohort + hmm.df$viterbi)
+boxplot(hmm.df$dist ~ hmm.df$cohort + hmm.df$viterbi, xlab = 'cohort:state', ylab = 'step length')
 
 ```
 
@@ -260,11 +260,11 @@ t0 <- cohort.1
 t1 <- cohort.4
 
 budget <- ggplot() +
-  facet_grid(slice~viterbi) + 
+  facet_grid(slice~state) + 
   geom_density(data = t0, aes(x = hour(date),
-                   fill = factor(viterbi), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
+                   fill = factor(state), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
   geom_density(data = t1, aes(x = hour(date),
-                              fill = factor(viterbi), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
+                              fill = factor(state), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
   
   # add sunrise/sunset
   geom_vline(xintercept=6
@@ -286,11 +286,11 @@ t1 <- cohort.4
 t1 <- subset(t1, t1$slice %in% unique(t0$slice))
 
 budget <- ggplot() +
-  facet_grid(slice~viterbi) + 
+  facet_grid(slice~state) + 
   geom_density(data = t0, aes(x = hour(date),
-                   fill = factor(viterbi), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
+                   fill = factor(state), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
   geom_density(data = t1, aes(x = hour(date),
-                              fill = factor(viterbi), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
+                              fill = factor(state), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
   
   # add sunrise/sunset
   geom_vline(xintercept=6
@@ -312,11 +312,11 @@ t1 <- cohort.4
 t1 <- subset(t1, t1$slice %in% unique(t0$slice))
 
 budget <- ggplot() +
-  facet_grid(slice~viterbi) + 
+  facet_grid(slice~state) + 
   geom_density(data = t0, aes(x = hour(date),
-                   fill = factor(viterbi), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
+                   fill = factor(state), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
   geom_density(data = t1, aes(x = hour(date),
-                              fill = factor(viterbi), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
+                              fill = factor(state), colour = factor(cohort)), alpha = 0.3, adjust = 1.5) +
   
   # add sunrise/sunset
   geom_vline(xintercept=6
@@ -352,7 +352,7 @@ ag.budget$state <- ag.budget$viterbi
 levels(ag.budget$state) <- c('encamped', 'meandering', 'dirwalk')
 levels(ag.budget$cohort) <- c('cohort 1', 'cohort 2', 'cohort 3', 'wild')
 
-ggplot(ag.budget, aes(x = as.factor(viterbi), y = prop, fill = cohort)) + geom_boxplot() + ylab("proportion time spent in state") + xlab("behavioral state")
+ggplot(ag.budget, aes(x = as.factor(viterbi), y = prop, fill = cohort)) + geom_boxplot() + ylab("proportion time spent in state") + xlab("movement state")
 
 ```
 Plot time budgets over the 14-day periods for each cohort and the wild group.
@@ -402,7 +402,7 @@ fig5
 ```
 
 ##### Differences in Activity Time Budgets
-From the regression models, we found that there are some differences in time budgets between the groups. We can calculate the difference in percent time spent in each state for all 14-day periods and plot them over time to vizualize these differences. As the regression model identified, there are not any evident temporal trends. 
+From the regression models, we found that there are some differences in time budgets between the groups. We can calculate the difference in percent time spent in each state for all 14-day periods and plot them over time to visualize these differences. As the regression model identified, there are not any evident temporal trends. 
 
 ```{r}
 # get differences between movement phases
