@@ -1,8 +1,12 @@
 ---
-title: "Sera HMM Notebook"
+title: "Supplementary Materials: Movement Data and Activity Budgets"
 output: html_notebook
 ---
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. Download rmd file in top right. 
+
+1. Prepare movement data and calculate 14-day analysis periods
+2. Fit and evaluate hidden Markov Models
+3. Analysis of movement states
 
 ```{r echo=FALSE, warning = FALSE, message=FALSE}
 library(tidyverse, quietly = TRUE)
@@ -10,7 +14,8 @@ library(lubridate, quietly = TRUE)
 library(ggplot2, quietly = TRUE)
 library(momentuHMM, quietly = TRUE)
 library(overlapping, quietly = TRUE)
-library(lsmeans, quietly = TRUE)
+library(adehabitatLT, quietly = TRUE)
+
 source('Sera_functions.R')
 
 # Set environment to EAT
@@ -25,23 +30,20 @@ rawData <- merge(rawData, meta, by = 'MovDataID')
 
 ### 1. Prep data
 * Prep data and check fixes
-* Downsample to nearest hour - some collars are on hourly schedule
-* Regularize trajectory
-* Remove individuals with fix rates <95%
+* Create 14-day periods
+* Calculate fix rates
 
 ```{r fig.width = 8}
 ## Prep and check data
 sera <- data.prep(rawData, collar.data = c('Class', 'releaseDate', 'cohort'))
-sera
 
 meta.table <- sera %>% group_by(MovDataID, CalcID, Class, releaseDate, cohort) %>%
   tally()
-#View(meta.table)
 
 # viz of raw fix times
-p <- ggplot(sera, aes(x = Fixtime, y = minute(Fixtime))) + geom_point() + facet_wrap(.~MovDataID) +
-  ylab("minutes from 0")
-p + ggtitle('raw fixes')
+# p <- ggplot(sera, aes(x = Fixtime, y = minute(Fixtime))) + geom_point() + facet_wrap(.~MovDataID) +
+#   ylab("minutes from 0")
+# p + ggtitle('raw fixes')
 
 # Downsample to clean up immobility alerts and recheck result. 
 sera <- sera %>%
@@ -79,7 +81,6 @@ slice.df <- slice.df %>% group_by(slice) %>%
 sera$date <- as.Date(sera$Fixtime)
 sera <- merge(sera, slice.df, by = 'date')
 sera$date <- NULL
-head(sera)
 
 # export 14-day periods metadata
 t <- as.data.frame(cbind(levels(as.factor(slice.df$slice)), levels(as.factor(slice.df$slice.start))))
@@ -102,9 +103,6 @@ system.time({
                         infolocs = sera[,c(1,6:10)]) 
 })
 
-# check output
-head(ele.traj$tracking.df)
-
 # get fix success rate
 t <- ele.traj$tracking.df %>%
   group_by(id) %>% 
@@ -114,15 +112,12 @@ t <- ele.traj$tracking.df %>%
 meta.table <- merge(meta.table, t, by = 'CalcID')
 
 meta.table
-
-write.csv(meta.table, './movdata/collar metadata.csv')
-
 ```
 
-### 3. Fit HMMs
-* HMMs are fit using bursts as ID. 
-* Filter out bursts with low fix rates and <500 points. 
-* We also take the log step length.
+### 2. Fit hidden Markov models
+* Filter out bursts with low fix rates (<95%) and <500 points. 
+* HMMs are fit to bursts to avoid large data gaps between relocations (>4 hrs)
+* We also take the log step length to improve fit (Polansky 2015).
 
 ##### Create dataframe
 
@@ -152,7 +147,7 @@ sera.log.step$step <- log(sera.log.step$step + 0.001) # add constant for zero st
 
 ##### Fit HMMs
 
-3-state model fits well. Diagnostic plots show some autocorrelation in the step lengths. Pseudoresiduals look ok.  
+Fit models with two and three movement states. Models are initiated using parameters for mean log step length and turning angle concentrations for each state. Models fits are retried 5 times to optimize initiation parameters using maximum log likelihood.  
 
 ```{r warning=FALSE, results='hide',message=FALSE}
 # state label
@@ -169,7 +164,7 @@ par2 <- list(step = c(2, 6, 2, 1),
 system.time(
   mod2 <- fitHMM(data = sera.log.step, nbStates = 2, dist = distNorm,
                  Par0 = par2,
-                 retryFits = 1,
+                 retryFits = 5,
                  stateName = stateNames2,
                  modelName = "twoStep")
 )
@@ -184,20 +179,22 @@ par3 <- list(step = c(1, 4, 6, 1.5, 1, 1),
 system.time(
   mod3 <- fitHMM(data = sera.log.step, nbStates = 3, dist = distNorm,
                  Par0 = par3,
-                 retryFits = 1,
+                 retryFits = 5,
                  stateName = stateNames3,
                  modelName = "threeState null")
 )
 
 ```
 
+
 ```{r}
+# top model output with 3 movement states
 mod3
 ```
 
 ##### Diagnostics
 
-Pseudo-residuals look good. Autocorrelation in step lengths is a bit high - possibly temp related? Reduced slightly in 3-state model. Turning angle distributions are shown for each of the three classified states. 
+Pseudo-residuals and autocorelation functions are used to assess the model fits. The autocorrelation is reduced in the 3-state model. Turning angle distributions are shown for each of the three classified states. 
 
 ```{r warning=FALSE, results='hide',message=FALSE}
 # diagnostic plots. Some autocorrelation in the step lengths
@@ -205,6 +202,7 @@ plotPR(mod2)
 
 plotPR(mod3)
 ```
+The distribution of turning angles shows the concentration of straight-line movement (turning angle = 0) as movement states progress from encamped to directed walk.
 
 ```{r results='hold'}
 # assign states using viterbi algorithm
@@ -218,30 +216,15 @@ plotRA <- function(x) {
             main=paste0("Relative Angles: ", unique(x$state)))
 }
 
+par(mfrow = c(1,3))
 state.split <- split(sera.hmm, sera.hmm$viterbi)
 plotRA(state.split[[1]])
 plotRA(state.split[[2]])
 plotRA(state.split[[3]])
 ```
 
-RE-RUN AND SAVE. SLICE INFO DID NOT SAVE LAST TIME ????
-
 ```{r}
-# export HMM-classified movdata with slice info
-#t <- sera.hmm %>%
-#  arrange(cohort, MovDataID, date)
-#write.csv(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210427.csv')
-saveRDS(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210427.rds')
-
-sera.hmm <- readRDS('./movdata/Sera_datasets_10Mar21_HMMclassified_20210427.rds')
-```
-
-
-```{r}
-# look at step length distributions in the 3 states and by cohort
-boxplot(sera.hmm$dist ~ sera.hmm$cohort + sera.hmm$viterbi)
-
-# filter out outlier steps -- steps greater than median of next behavioral state distance
+# filter out outlier steps 
 split <- split(sera.hmm, sera.hmm$viterbi)
 split[[1]] <- filter(split[[1]], dist <= median((split[[2]]$dist + runif(1, -200, 200)), na.rm = T))
 split[[2]] <- filter(split[[2]], dist <= median((split[[3]]$dist + runif(1, -200, 200)), na.rm = T))
@@ -251,18 +234,6 @@ hmm.df <- do.call(rbind, split)
 # check step length distributions
 boxplot(hmm.df$dist ~ hmm.df$cohort + hmm.df$viterbi)
 
-
-
-
-```
-
-```{r}
-# export HMM-classified movdata with slice info
-t <- hmm.df %>%
-  arrange(cohort, MovDataID, date)
-write.csv(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210524.csv')
-saveRDS(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210524.rds')
-
 ```
 
 ### 3. Activity Budgets 
@@ -271,19 +242,8 @@ saveRDS(t, './movdata/Sera_datasets_10Mar21_HMMclassified_20210524.rds')
 * Assess activity budgets using state-level time density
 * Assess activity time budgets (e.g. % time spent in each state over 14-day periods)
 
-```{r}
-# create true start and end dates based on collars
-sera <- sera %>%
-  group_by(CalcID) %>%
-  mutate(StartDate = min(Fixtime), EndDate = max(Fixtime))
-
-# check sample sizes by cohort
-hmm.df %>% group_by(cohort) %>% tally()
-```
-
-### 4. Activity Budgets - Time Density
+##### Time Density of Activity Budgets
 * Assess activity budgets using state-level time density for the 14-day periods
-
 
 Activity budgets over 14-day periods - all dates are relative to the first cohort's release date. 24-hour activity pattern density plots are faceted by relative period, showing pre and post release. There is immediate use of exploratory state after release, but the timing of exploratory movements changes within the first 
 
@@ -467,15 +427,7 @@ for(k in 1:3){ # orphan cohort loop - to be comped always with wild cohort 4
 t <- do.call(rbind, comp.all)
 ```
 
-Averaged across time, overlap is lower than expected. In the agricultural tactic comparisons, similar tactics were averaging close to or above 90% overlap in all three states
-```{r}
-t$state <- as.factor(t$viterbi)
-levels(t$state) <- c('encamped', 'meandering', 'dirwalk')
-t %>% group_by(state) %>% summarise(mean(estOV))
-```
-
-Plot the overlap estimates of activity between orphan cohorts and the wild group over time. No obvious trends.
-X-axis corresponds to the 14-day time period. Plots are faceted by cohort comparison and behavioral state. 
+Plotting the overlap estimates of activity between orphan cohorts and the wild group over time, no obvious trends were detected. X-axis corresponds to the 14-day time period. Plots are faceted by cohort comparison and behavioral state. 
 
 ```{r fig.width=8}
 t$comp <- as.factor(t$comp)
@@ -484,7 +436,7 @@ ggplot(t, aes(slice, estOV)) + geom_point(aes(color = state)) + facet_wrap(comp~
   xlab('14-day periods') + ylab('Estimated overlap in 24-hour activity')
 ```
 
-### 5. Activity Time Budets
+##### Activity Time Budets
 * Calculate activity time budgets (pct. time spent in each state) over 14 day slices
 * Plot the difference in time budgets over 14 day slices. Would expect these to get closer to zero if movement becomes more similar
 * Boxplots of 14-day activity time budgets 
@@ -511,59 +463,53 @@ ggplot(ag.budget, aes(slice, y = prop, group = state)) + geom_point(aes(color = 
   facet_grid(rows = vars(cohort), cols = vars(state)) +
   xlab('14-day period') + ggtitle('activity time budgets for each group (14-day)')
 ```
-Distribution of 14-day activity budgets, stratified by behavioral state and cohort (Fig 5)
+
 ```{r}
-library(ggsci)
 t <- ag.budget
 levels(t$viterbi) <- c("encamped", "meandering", "dir-walk")
+t$cohort <- factor(t$cohort, levels = c("cohort 1", "cohort 2", "cohort 3", "wild"))
+
 ggplot(t, aes(x = as.factor(viterbi), y = prop, fill = cohort)) + geom_boxplot() + ylab("proportion time spent in state") + xlab("behavioral state")
 
-
 ```
 
-```{r, eval = FALSE, echo = FALSE}
-# library(sjPlot)
-# 
-# # set wild as reference level
-# ag.budget$cohort <- relevel(ag.budget$cohort, ref = 'wild')
-# 
-# # fit linear mixed model
-# mod <- lm(prop ~ cohort*viterbi, data = ag.budget)
-# tab_model(mod)
-# 
-# # diagnostics
-# plot(mod, which = 1)
-# plot(mod, which = 2)
-# 
-# library(lsmeans)
-# # want to compare the levels of cohort, within the levels of viterbi state
-# ls <- lsmeans(mod, pairwise ~ cohort|viterbi, glhargs=list())
-# plot(ls[[1]])
-```
+Construct state-level models of activity time budgets by cohort. A model is run for each behavioral state. Addition of a random effect for 14-day period (slice) to account for repeated observations. 
 
-Construct state-level models of activity time budgets by cohort. A model is run for each behavioral state. The results suggest that cohort 1 and 2 spent significantly more time in directed walk movements than the wild cohort, and significantly less time in encamped movements. The reference level for each model is the wild cohort. 
-```{r}
+The results suggest that cohort 1 and 2 spent significantly more time in directed walk movements than the wild cohort, and significantly less time in encamped movements. The reference level for each model is the wild cohort. 
 
+```{r message=FALSE}
 # set reference level
 ag.budget2 <- ag.budget
-ag.budget2$cohort <- relevel(ag.budget2$cohort, ref = 'wild')
+ag.budget2$cohort <- relevel(ag.budget2$cohort, ref = 'wild') # ref is resident wild pop for comparison
+ag.budget2$time.period <- ag.budget$slice
 
 ## construct models by state
-t <- filter(ag.budget2, viterbi == 1)
-m.encamped <- lm(prop ~ cohort, data = t)
+
+#encamped
+t <- filter(ag.budget2, viterbi == 1) %>% rename(prop.encamped = prop)
+m.encamped <- lm(prop.encamped ~ cohort + time.period, data = t)
 summary(m.encamped)
+confint(m.encamped)
 
-t <- filter(ag.budget2, viterbi == 2)
-m.meandering <- lm(prop ~ cohort, data = t)
+#meandering
+t <- filter(ag.budget2, viterbi == 2) %>% rename(prop.meandering = prop)
+m.meandering <- lm(prop.meandering ~ cohort + time.period, data = t)
 summary(m.meandering)
+confint(m.meandering)
 
-t <- filter(ag.budget2, viterbi == 3)
-m.dirwalk <- lm(prop ~ cohort, data = t)
+#dir-walk
+t <- filter(ag.budget2, viterbi == 3) %>% rename(prop.dirwalk = prop)
+m.dirwalk <- lm(prop.dirwalk ~ cohort + time.period, data = t)
 summary(m.dirwalk)
+confint(m.dirwalk)
 
+fig5 <- sjPlot::plot_models(m.encamped, m.meandering, m.dirwalk, legend.title = 'Behavioral State', colors = scales::hue_pal(direction = -1)(3)) + ylim(limits = c(-0.5, .5))
+fig5
 ```
 
-#### Differences in Activity Time Budgets (Fig 6)
+##### Differences in Activity Time Budgets
+From the regression models, we found that there are some differences in time budgets between the groups. We can calculate the difference in percent time spent in each state for all 14-day periods and plot them over time to vizualize these differences. As the regression model identified, there are not any evident temporal trends. 
+
 ```{r}
 # get differences between movement phases
 split <- split(ag.budget, ag.budget$cohort)
@@ -578,24 +524,18 @@ for(i in 1:3){
 diff <- do.call(rbind, split)
 diff$state <- diff$viterbi
 levels(diff$state) <- c("encamped", "meandering", "dir-walk")
-levels(diff$cohort.x) <- c("cohort 1", 'cohort 2', 'cohort 3', 'wild')
 ```
 
-Overall, orphans appear to generally spend more time in exploratory and less time in encamped. Amounts of time in meandering are similar
-```{r}
-diff %>% group_by(state, cohort.x) %>% summarise(mean(diff)) 
-```
-
-Plotted over the 14-day slices, the differences appear to be consistent over time.
 
 ```{r fig.width=8}
 #' There is not much temporal pattern here. 
 #' Columns correspond to behavioral state, rows correspond to each orphan cohort
-ggplot(diff, aes(x = slice, y = diff, group = state)) + geom_point(aes(color = state), size = 1) + 
+fig6 <- ggplot(diff, aes(x = slice, y = diff, group = state)) + geom_point(aes(color = state), size = 1) + 
   geom_line(aes(color = state), linetype = "dashed") + geom_hline(yintercept = 0) + 
   facet_grid(rows = vars(cohort.x), cols = vars(state)) +
   xlab('14-day period') + ylab('difference in activity time budget') +
-  ggtitle('Difference in activity time budgets between cohorts and wild groups (14-day)')
+  ggtitle('Difference in activity time budgets between cohorts and wild (14-day)')
+fig6
 ```
 
 
