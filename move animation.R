@@ -67,11 +67,31 @@ animate_paths(paths = ele,
               tail.length = 1,
               method = "mp4")
 
-write.csv(ele, './movdata/animation_data.csv')
 
-t <- ele %>% filter(cohort == 3)
-write.csv(t, './movdata/animation_data_cohort3.csv')
+##### Animate all cohorts + residents
+# create animation dataset - cohort
+ele <- output.latlong %>%
+  mutate(date = as.POSIXct(date, tz = "Africa/Nairobi")) %>%
+  filter(as.Date(date) >= as.Date("2019-05-02")) %>%
+  mutate(cohort = as.factor(cohort))
 
 
+color.pal <- c('#a50f14', '#de2d26', '#fb6a4a', #red
+               '#006d2c', '#31a354', '#74c476', #green  
+               '#08519c', '#3182bd', #blue
+               '#000000', '#252525', '#525252', '#737373', '#969696') # black
+              
+# animation function
+animate_paths(paths = ele,
+              delta.t = "day", # daily movement
+              coord = c("location.long", "location.lat"),
+              Time.name = "date",
+              ID.name = "MovDataID",
+              pt.cex = 2,
+              pt.colors = color.pal,
+              background = background,
+              tail.wd = .5,
+              tail.length = 1,
+              method = "mp4")
 
 
