@@ -24,35 +24,18 @@ background <- ggmap::get_googlemap(center = c(37.800, 1.097),
                                    maptype = "satellite")
 
 
-
-# create animation dataset - by cohort
-ele <- filter(output.latlong, cohort == 1) %>%
-  mutate(cohort = as.factor(cohort)) %>%
-  mutate(date = as.POSIXct(date, tz = "Africa/Nairobi")) 
-
-# animation function
-animate_paths(paths = ele,
-              delta.t = "day", # daily movement
-              coord = c("location.long", "location.lat"),
-              Time.name = "date",
-              covariate = 'cohort',
-              ID.name = "MovDataID",
-              background = background,
-              method = "mp4")
-
-
-
-##### Animate all cohorts together
+##### Animate 
 # create animation dataset - cohort
-ele <- filter(output.latlong, cohort %in% c(1,2,3)) %>%
+ele <- filter(output.latlong, cohort %in% c(1,2,3)) %>% # filter here
   mutate(date = as.POSIXct(date, tz = "Africa/Nairobi")) %>%
   filter(as.Date(date) >= as.Date("2019-05-02")) %>%
   mutate(cohort = as.factor(cohort))
 
 
+# color pallets sourced at https://colorbrewer2.org/
 color.pal <- c('#a50f14', '#de2d26', '#fb6a4a', #red
-               '#006d2c', '#31a354', '#74c476', #green  
-               '#08519c', '#3182bd') #blue
+               '#005a32', '#238b45', #green  
+               '#08519c', '#3182bd', '#6baed6') #blue
 
 # animation function
 animate_paths(paths = ele,
@@ -77,8 +60,8 @@ ele <- output.latlong %>%
 
 
 color.pal <- c('#a50f14', '#de2d26', '#fb6a4a', #red
-               '#006d2c', '#31a354', '#74c476', #green  
-               '#08519c', '#3182bd', #blue
+               '#005a32', '#238b45', #green  
+               '#08519c', '#3182bd', '#6baed6') #blue
                '#000000', '#252525', '#525252', '#737373', '#969696') # black
               
 # animation function
