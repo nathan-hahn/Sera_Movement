@@ -347,6 +347,16 @@ cohort.1 <- subset(cohort.1, as.Date(cohort.1$date) >= release.date[1])
 cohort.2 <- subset(cohort.2, as.Date(cohort.2$date) >= release.date[2])
 cohort.3 <- subset(cohort.3, as.Date(cohort.3$date) >= release.date[3])
 
+# **for wild, must repeat the first 14 day period twice to compare with cohort 1's earlier release date 
+wild.split <- split(cohort.4, cohort.4$slice)
+t <- length(wild.split)
+wild.split[[t+1]] <- wild.split[[2]]
+wild.split[[t+1]]$slice <- 0
+wild.split[[1]] <- wild.split[[2]]
+wild.split[[1]]$slice <- 1
+# Bind back together and check result
+cohort.4 <- do.call(rbind, wild.split)
+
 library(DescTools)
 # ag budget with 95% CIs
 ag.budget <- rbind(cohort.1, cohort.2, cohort.3, cohort.4) %>%
@@ -439,7 +449,7 @@ fig6 <- ggplot(diff, aes(x = slice, y = diff, group = state)) + geom_point(aes(c
   geom_line(aes(color = state), linetype = "dashed") + geom_hline(yintercept = 0) + 
   facet_grid(rows = vars(cohort.x), cols = vars(state)) +
   xlab('14-day period') + ylab('difference in activity time budget') +
-  ggtitle('Difference in activity time budgets between cohorts and wild (14-day)')
+  labs(colour="Behavioral State")
 fig6
 ```
 
